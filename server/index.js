@@ -14,6 +14,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const ROOT_DIR = path.resolve(__dirname, "..");
 const DIST_DIR = path.join(ROOT_DIR, "dist");
+const ENV_FILE = path.join(ROOT_DIR, ".env");
 
 function parseBoolean(value, fallback = false) {
   if (value === undefined || value === null || value === "") return fallback;
@@ -66,6 +67,40 @@ function safeJsonParse(str) {
   } catch {
     return { ok: false, value: null };
   }
+}
+
+function upsertEnvValues(values) {
+  const entries = Object.entries(values)
+    .filter(([, v]) => v !== undefined && v !== null)
+    .map(([k, v]) => [String(k), String(v)]);
+
+  if (!entries.length) return;
+
+  const source = fs.existsSync(ENV_FILE) ? fs.readFileSync(ENV_FILE, "utf8") : "";
+  const lines = source ? source.split(/\r?\n/) : [];
+  const seen = new Set();
+
+  const updated = lines.map((line) => {
+    const m = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=/);
+    if (!m) return line;
+
+    const key = m[1];
+    const found = entries.find(([k]) => k === key);
+    if (!found) return line;
+
+    seen.add(key);
+    return `${key}=${found[1]}`;
+  });
+
+  for (const [k, v] of entries) {
+    if (!seen.has(k)) updated.push(`${k}=${v}`);
+  }
+
+  const nextText = `${updated.join("\n").replace(/\n+$/, "")}\n`;
+  if (nextText === source) return false;
+
+  fs.writeFileSync(ENV_FILE, nextText, "utf8");
+  return true;
 }
 
 function jsonSend(ws, obj) {
@@ -294,6 +329,15 @@ function makeSession(ws) {
 function setIrcStatus(session, status, message) {
   session.ircStatus = status;
   jsonSend(session.ws, { type: "irc:status", status, message });
+}
+
+function persistSessionIrcConfig(session) {
+  return upsertEnvValues({
+    IRC_HOST: session.ircHost,
+    IRC_PORT: session.ircPort,
+    IRC_TLS: session.ircTls ? "true" : "false",
+    ALLOW_CLIENT_IRC_SETTINGS: "true",
+  });
 }
 
 function ensureIrc(session) {
@@ -556,6 +600,21 @@ wss.on("connection", (ws, req) => {
         }
       }
 
+      const persistRequested = msg.persist === true;
+
+      if (ALLOW_CLIENT_IRC_SETTINGS && persistRequested) {
+        try {
+          const changed = persistSessionIrcConfig(session);
+          jsonSend(ws, { type: "settings:persisted", ok: true, changed: Boolean(changed) });
+        } catch (err) {
+          jsonSend(ws, {
+            type: "error",
+            code: "persist_failed",
+            message: err?.message || "Failed to persist settings to .env",
+          });
+        }
+      }
+
       const serverChanged =
         prevServer.host !== session.ircHost || prevServer.port !== session.ircPort || prevServer.tls !== session.ircTls;
 
@@ -620,6 +679,17 @@ wss.on("connection", (ws, req) => {
             session.echoSuppress.clear();
             setIrcStatus(session, "disconnected", "IRC server changed");
             jsonSend(ws, { type: "chats:reset" });
+
+            try {
+              const changed = persistSessionIrcConfig(session);
+              jsonSend(ws, { type: "settings:persisted", ok: true, changed: Boolean(changed) });
+            } catch (err) {
+              jsonSend(ws, {
+                type: "error",
+                code: "persist_failed",
+                message: err?.message || "Failed to persist settings to .env",
+              });
+            }
           }
         } else if (session.ircHost && onionLink !== session.ircHost) {
           jsonSend(ws, {

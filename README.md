@@ -22,6 +22,26 @@ npm run dev:full
 
 That starts the gateway on port `3000` and Vite on the next free port.
 
+If you run only `npm run dev`, Vite will show `ws proxy error ECONNREFUSED` because the gateway is not running on port `3000` yet.
+
+## One-click setup scripts
+
+Windows:
+
+- Run [scripts/windows/setup_and_run.bat](scripts/windows/setup_and_run.bat) as Administrator.
+- Or run PowerShell setup: [scripts/windows/setup_and_run.ps1](scripts/windows/setup_and_run.ps1).
+- To package a standalone `.exe`, run [scripts/windows/build_setup_exe.ps1](scripts/windows/build_setup_exe.ps1).
+- Test checks: [scripts/windows/test_stack.bat](scripts/windows/test_stack.bat).
+- The setup runner now verifies Tor SOCKS on `127.0.0.1:9050` and starts `tor.exe` automatically if needed.
+- If `.env` already has `IRC_HOST`, it is offered as the default onion host prompt value.
+- The setup runner opens `http://localhost:3000` automatically when starting the gateway.
+
+Linux (Ubuntu):
+
+- Run `sudo bash scripts/linux/setup_and_run.sh`.
+- Test checks: `bash scripts/linux/test_stack.sh`.
+- The setup runner validates onion input and fails with tor service diagnostics if `127.0.0.1:9050` is unavailable.
+
 ## Production on EC2
 
 1. Install Node.js and Tor on the instance.
@@ -51,7 +71,7 @@ The built UI and WebSocket gateway will be served from the same process.
 ## Optional hardening
 
 - Set `APP_ACCESS_TOKEN` and pass it in the URL as `?token=...`.
-- Keep `ALLOW_CLIENT_IRC_SETTINGS=false` unless you want the UI to override the server IRC host per session.
+- If you lock server settings, set `ALLOW_CLIENT_IRC_SETTINGS=false`.
 - Put Nginx in front of the Node process if you want TLS termination and a stable public port.
 
 ## Scripts

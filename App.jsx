@@ -22,6 +22,19 @@ function formatTime(ts) {
   }
 }
 
+function formatFileSize(bytes) {
+  const n = Number(bytes ?? 0);
+  if (!Number.isFinite(n) || n <= 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let value = n;
+  let idx = 0;
+  while (value >= 1024 && idx < units.length - 1) {
+    value /= 1024;
+    idx += 1;
+  }
+  return `${value >= 10 || idx === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[idx]}`;
+}
+
 function previewForMessage(message) {
   if (!message) return "";
   switch (message.type) {
@@ -681,8 +694,10 @@ function ChatInput({
   attachOpen,
   setAttachOpen,
   onInsertMock,
+  onUploadFile,
 }) {
   const inputRef = useRef(null);
+  const fileInputRef = useRef(null);
 
   return (
     <div className="border-t border-black/10 bg-[#f0f2f5] px-3 py-2">
@@ -764,6 +779,27 @@ function ChatInput({
         {attachOpen ? (
           <Popover onClose={() => setAttachOpen(false)} align="left">
             <div className="w-56 p-2">
+              <input
+                ref={fileInputRef}
+                type="file"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) onUploadFile?.(file);
+                  e.target.value = "";
+                  setAttachOpen(false);
+                  inputRef.current?.focus();
+                }}
+              />
+
+              <AttachmentRow
+                label="Upload file"
+                hint="Image, video, doc, audio"
+                onClick={() => {
+                  fileInputRef.current?.click();
+                }}
+              />
+
               <AttachmentRow
                 label="Photo"
                 hint="Mock image message"
@@ -1148,7 +1184,7 @@ export default function App() {
     setIrcSettings(next);
     setLastError("");
 
-    const ok = wsSend({ type: "settings:update", ...next });
+    const ok = wsSend({ type: "settings:update", ...next, persist: true });
     if (!ok) {
       setLastError("Not connected to gateway");
     }
@@ -1206,6 +1242,61 @@ export default function App() {
     setLastError(`Attachments (${kind}) not supported yet`);
   }
 
+  function uploadFile(file) {
+    if (!selectedChatId || !file) return;
+
+    const now = Date.now();
+    const fileUrl = URL.createObjectURL(file);
+    const fileName = file.name || "file";
+    const fileSize = formatFileSize(file.size);
+    const mime = String(file.type || "").toLowerCase();
+
+    if (mime.startsWith("image/")) {
+      appendMessage(selectedChatId, {
+        id: uid(),
+        chatId: selectedChatId,
+        direction: "out",
+        type: "image",
+        url: fileUrl,
+        caption: fileName,
+        createdAt: now,
+      });
+    } else if (mime.startsWith("video/")) {
+      appendMessage(selectedChatId, {
+        id: uid(),
+        chatId: selectedChatId,
+        direction: "out",
+        type: "video",
+        url: fileUrl,
+        caption: fileName,
+        createdAt: now,
+      });
+    } else if (mime.startsWith("audio/")) {
+      appendMessage(selectedChatId, {
+        id: uid(),
+        chatId: selectedChatId,
+        direction: "out",
+        type: "voice",
+        url: fileUrl,
+        createdAt: now,
+      });
+    } else {
+      appendMessage(selectedChatId, {
+        id: uid(),
+        chatId: selectedChatId,
+        direction: "out",
+        type: "document",
+        fileName,
+        fileSize,
+        url: fileUrl,
+        createdAt: now,
+      });
+    }
+
+    // Media transfer over IRC isn't native; send a text marker so remote peers still get context.
+    wsSend({ type: "msg:send", chatId: selectedChatId, text: `[file] ${fileName} (${fileSize})` });
+  }
+
   const chatPanelDisplay = mobilePanel === "list" ? "hidden md:flex" : "flex";
 
   return (
@@ -1249,6 +1340,7 @@ export default function App() {
                 attachOpen={attachOpen}
                 setAttachOpen={setAttachOpen}
                 onInsertMock={insertMockAttachment}
+                onUploadFile={uploadFile}
               />
             </>
           ) : (
