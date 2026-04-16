@@ -12,18 +12,12 @@ if [[ "${EUID}" -ne 0 ]]; then
 fi
 
 apt-get update
-apt-get install -y curl ca-certificates gnupg tor inspircd nodejs npm
+apt-get install -y curl ca-certificates gnupg tor nodejs npm
 
-read -r -p "Enter IRC onion host (example: abc...xyz.onion): " ONION
-if [[ -z "${ONION}" ]]; then
-  echo "Onion host is required."
-  exit 1
-fi
-
-ONION="$(echo "$ONION" | tr '[:upper:]' '[:lower:]' | xargs)"
-if [[ ! "$ONION" =~ ^[a-z2-7]{56}\.onion$ ]] && [[ ! "$ONION" =~ ^[a-z2-7][a-z2-7.-]*\.onion$ ]]; then
-  echo "Onion host is invalid: $ONION"
-  exit 1
+if [[ "${INSTALL_INSPIRCD:-false}" == "true" ]]; then
+  apt-get install -y inspircd || true
+else
+  echo "Skipping InspIRCd install by default. Set INSTALL_INSPIRCD=true to try it."
 fi
 
 cat > "$ROOT_DIR/.env" <<EOF
@@ -33,7 +27,7 @@ WS_PATH=/ws
 TOR_ENABLED=true
 TOR_SOCKS_HOST=127.0.0.1
 TOR_SOCKS_PORT=9050
-IRC_HOST=${ONION}
+IRC_HOST=
 IRC_PORT=6667
 IRC_TLS=false
 IRC_TLS_REJECT_UNAUTHORIZED=true
@@ -42,6 +36,7 @@ ALLOW_CLIENT_IRC_SETTINGS=true
 MAX_TEXT_LEN=900
 MAX_NICK_LEN=24
 EOF
+echo "Wrote .env with blank IRC host. Enter the onion link in the app login screen."
 
 systemctl enable tor || true
 systemctl start tor || true

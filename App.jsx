@@ -8,6 +8,8 @@ const THEME = {
 };
 
 const BASE_TIME = Date.now();
+const SYSTEM_CHAT_ID = "chat_system";
+const ADMIN_CREDENTIALS = { username: "admin", password: "admin" };
 
 function uid() {
   if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
@@ -40,6 +42,8 @@ function previewForMessage(message) {
   switch (message.type) {
     case "text":
       return message.text;
+    case "system":
+      return message.text;
     case "image":
       return message.caption ? `📷 ${message.caption}` : "📷 Photo";
     case "video":
@@ -51,6 +55,27 @@ function previewForMessage(message) {
     default:
       return "";
   }
+}
+
+function createSystemChat() {
+  return {
+    id: SYSTEM_CHAT_ID,
+    kind: "system",
+    username: "System",
+    status: "online",
+    ircTarget: "system",
+  };
+}
+
+function createSystemMessage(text) {
+  return {
+    id: uid(),
+    chatId: SYSTEM_CHAT_ID,
+    direction: "system",
+    type: "system",
+    text,
+    createdAt: Date.now(),
+  };
 }
 
 function initialsFromName(name) {
@@ -189,6 +214,16 @@ const MOCK_MESSAGES_BY_CHAT_ID = (() => {
   const t = (minsAgo) => BASE_TIME - minsAgo * 60 * 1000;
 
   return {
+    [SYSTEM_CHAT_ID]: [
+      {
+        id: uid(),
+        chatId: SYSTEM_CHAT_ID,
+        direction: "system",
+        type: "system",
+        text: "Login to configure your onion server and connect.",
+        createdAt: t(200),
+      },
+    ],
     chat_alice: [
       {
         id: uid(),
@@ -881,14 +916,27 @@ export default function App() {
   const isMobile = useMediaQuery("(max-width: 767px)");
   const [mobilePanel, setMobilePanel] = useState("list");
 
-  const [chats, setChats] = useState([]);
-  const [messagesByChatId, setMessagesByChatId] = useState({});
-  const [selectedChatId, setSelectedChatId] = useState("");
+  const [chats, setChats] = useState([createSystemChat()]);
+  const [messagesByChatId, setMessagesByChatId] = useState(() => ({
+    [SYSTEM_CHAT_ID]: MOCK_MESSAGES_BY_CHAT_ID[SYSTEM_CHAT_ID] ?? [createSystemMessage("Login to configure your onion server and connect.")],
+  }));
+  const [selectedChatId, setSelectedChatId] = useState(SYSTEM_CHAT_ID);
   const [search, setSearch] = useState("");
   const [draft, setDraft] = useState("");
   const [typingByChatId, setTypingByChatId] = useState(() => ({}));
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [attachOpen, setAttachOpen] = useState(false);
+  const [loginOpen, setLoginOpen] = useState(true);
+  const [loginRole, setLoginRole] = useState("user");
+  const [loginDraft, setLoginDraft] = useState(() => ({
+    username: "",
+    password: "",
+    displayName: "",
+    nick: "",
+    host: "",
+    port: "6667",
+    tls: false,
+  }));
 
   const [ircSettings, setIrcSettings] = useState(() => ({
     host: "",
@@ -899,6 +947,13 @@ export default function App() {
   }));
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [joinOpen, setJoinOpen] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [userProfile, setUserProfile] = useState(() => ({
+    role: "user",
+    displayName: "",
+    nick: "whisper",
+  }));
+  const isAuthenticatedRef = useRef(isAuthenticated);
 
   const wsRef = useRef(null);
   const ircSettingsRef = useRef(ircSettings);
@@ -915,6 +970,10 @@ export default function App() {
   useEffect(() => {
     ircSettingsRef.current = ircSettings;
   }, [ircSettings]);
+
+  useEffect(() => {
+    isAuthenticatedRef.current = isAuthenticated;
+  }, [isAuthenticated]);
 
   useEffect(() => {
     chatsRef.current = chats;
@@ -995,6 +1054,42 @@ export default function App() {
     return true;
   }
 
+  function appendSystemMessage(text) {
+    setMessagesByChatId((prev) => {
+      const existing = prev[SYSTEM_CHAT_ID] ?? [];
+      return {
+        ...prev,
+        [SYSTEM_CHAT_ID]: [...existing, createSystemMessage(text)],
+      };
+    });
+  }
+
+  function connectWithProfile(profile) {
+    const nextSettings = {
+      host: profile.host ?? "",
+      port: profile.port ?? 6667,
+      tls: Boolean(profile.tls),
+      nick: profile.nick?.trim() || "whisper",
+      password: profile.password ?? "",
+    };
+
+    setIrcSettings(nextSettings);
+    setUserProfile({
+      role: profile.role,
+      displayName: profile.displayName ?? "",
+      nick: nextSettings.nick,
+    });
+    setSelectedChatId(SYSTEM_CHAT_ID);
+    setMobilePanel("list");
+    setIsAuthenticated(true);
+    setLoginOpen(false);
+    appendSystemMessage(`${profile.role === "admin" ? "Admin" : "User"} login accepted.`);
+
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsSend({ type: "settings:update", ...nextSettings, persist: true });
+    }
+  }
+
   useEffect(() => {
     if (typeof window === "undefined") return;
 
@@ -1013,24 +1108,29 @@ export default function App() {
       setWsStatus("open");
       setLastError("");
 
-      const s = ircSettingsRef.current;
-      wsSend({
-        type: "settings:update",
-        host: s.host,
-        port: s.port,
-        tls: s.tls,
-        nick: s.nick,
-        password: s.password,
-      });
+      if (isAuthenticatedRef.current) {
+        const s = ircSettingsRef.current;
+        wsSend({
+          type: "settings:update",
+          host: s.host,
+          port: s.port,
+          tls: s.tls,
+          nick: s.nick,
+          password: s.password,
+          persist: true,
+        });
+      }
     };
 
     const handleClose = () => {
       setWsStatus("disconnected");
       setIrcConn({ status: "disconnected", message: "" });
+      appendSystemMessage("Gateway disconnected.");
     };
 
     const handleError = () => {
       setLastError("WebSocket error");
+      appendSystemMessage("Gateway WebSocket error.");
     };
 
     const handleMessage = (event) => {
@@ -1049,6 +1149,7 @@ export default function App() {
       switch (data.type) {
         case "hello": {
           setAuthState({ requiresAuth: Boolean(data.requiresAuth), authed: Boolean(data.authed) });
+          appendSystemMessage(`Gateway ready. Tor: ${data.irc?.tor ? "enabled" : "disabled"}.`);
 
           if (data.irc && typeof data.irc === "object") {
             setIrcSettings((prev) => ({
@@ -1063,6 +1164,7 @@ export default function App() {
 
         case "irc:status": {
           setIrcConn({ status: String(data.status ?? "unknown"), message: String(data.message ?? "") });
+          if (data.message) appendSystemMessage(`IRC ${String(data.status ?? "status")}: ${String(data.message)}`);
           return;
         }
 
@@ -1081,10 +1183,12 @@ export default function App() {
         }
 
         case "chats:reset": {
-          setChats([]);
-          setMessagesByChatId({});
+          setChats([createSystemChat()]);
+          setMessagesByChatId((prev) => ({
+            [SYSTEM_CHAT_ID]: prev[SYSTEM_CHAT_ID] ?? [],
+          }));
           setTypingByChatId({});
-          setSelectedChatId("");
+          setSelectedChatId(SYSTEM_CHAT_ID);
           setMobilePanel("list");
           return;
         }
@@ -1145,7 +1249,9 @@ export default function App() {
         }
 
         case "error": {
-          setLastError(typeof data.message === "string" ? data.message : "Error");
+          const message = typeof data.message === "string" ? data.message : "Error";
+          setLastError(message);
+          appendSystemMessage(message);
           return;
         }
 
@@ -1187,7 +1293,39 @@ export default function App() {
     const ok = wsSend({ type: "settings:update", ...next, persist: true });
     if (!ok) {
       setLastError("Not connected to gateway");
+      appendSystemMessage("Not connected to gateway.");
     }
+  }
+
+  function submitLogin() {
+    const role = loginRole;
+    const nextNick = loginDraft.nick.trim() || (role === "admin" ? "admin" : "whisper");
+    const host = loginDraft.host.trim() || (role === "user" ? (ircSettingsRef.current.host ?? "") : "");
+    const parsedPort = Number.parseInt(loginDraft.port, 10);
+    const port = Number.isFinite(parsedPort) ? Math.min(65535, Math.max(1, parsedPort)) : 6667;
+
+    if (role === "admin") {
+      if (loginDraft.username.trim() !== ADMIN_CREDENTIALS.username || loginDraft.password !== ADMIN_CREDENTIALS.password) {
+        setLastError("Admin login failed.");
+        appendSystemMessage("Admin login failed.");
+        return;
+      }
+      if (!host) {
+        setLastError("Admin must enter the IRC onion host.");
+        appendSystemMessage("Admin must enter the IRC onion host.");
+        return;
+      }
+    }
+
+    connectWithProfile({
+      role,
+      displayName: loginDraft.displayName.trim(),
+      nick: nextNick,
+      host,
+      port,
+      tls: Boolean(loginDraft.tls),
+      password: loginDraft.password,
+    });
   }
 
   function handleSelectChat(id) {
@@ -1206,6 +1344,7 @@ export default function App() {
     const ok = wsSend({ type: "chat:join", onionLink: ol, target: tgt, displayName: dn });
     if (!ok) {
       setLastError("Not connected to gateway");
+      appendSystemMessage("Not connected to gateway.");
       return;
     }
 
@@ -1231,6 +1370,7 @@ export default function App() {
     const ok = wsSend({ type: "msg:send", chatId: selectedChatId, text });
     if (!ok) {
       setLastError("Not connected to gateway");
+      appendSystemMessage("Not connected to gateway.");
       return;
     }
 
@@ -1295,6 +1435,19 @@ export default function App() {
 
     // Media transfer over IRC isn't native; send a text marker so remote peers still get context.
     wsSend({ type: "msg:send", chatId: selectedChatId, text: `[file] ${fileName} (${fileSize})` });
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <LoginScreen
+        role={loginRole}
+        setRole={setLoginRole}
+        draft={loginDraft}
+        setDraft={setLoginDraft}
+        onSubmit={submitLogin}
+        connectionHint={connectionLabel}
+      />
+    );
   }
 
   const chatPanelDisplay = mobilePanel === "list" ? "hidden md:flex" : "flex";
@@ -1368,6 +1521,126 @@ export default function App() {
         onJoin={joinChat}
       />
     </div>
+  );
+}
+
+function LoginScreen({ role, setRole, draft, setDraft, onSubmit, connectionHint }) {
+  const isAdmin = role === "admin";
+
+  return (
+    <div className="flex h-[100dvh] w-full items-center justify-center overflow-hidden bg-[radial-gradient(circle_at_top,_rgba(37,211,102,0.16),_transparent_34%),linear-gradient(180deg,#0f172a_0%,#0f172a_28%,#f0f2f5_28%,#f0f2f5_100%)] px-4">
+      <div className="grid w-full max-w-5xl gap-6 rounded-[28px] bg-white shadow-2xl ring-1 ring-black/10 lg:grid-cols-[1.2fr_0.8fr]">
+        <div className="hidden flex-col justify-between rounded-[28px] bg-[#0f172a] p-8 text-white lg:flex">
+          <div>
+            <div className="text-sm uppercase tracking-[0.3em] text-white/50">Hidden Whisper</div>
+            <h1 className="mt-4 max-w-lg text-4xl font-semibold leading-tight">Log in as admin or user, then connect to your onion IRC server.</h1>
+            <p className="mt-4 max-w-md text-sm leading-6 text-white/70">
+              Enter your details in the app. The gateway will verify Tor connectivity and show connection errors in the System chat.
+            </p>
+          </div>
+          <div className="rounded-2xl bg-white/5 p-4 text-sm text-white/70 ring-1 ring-white/10">
+            {connectionHint ? <div className="truncate">Current gateway: {connectionHint}</div> : <div>No gateway connection yet.</div>}
+          </div>
+        </div>
+
+        <div className="p-6 sm:p-8">
+          <div className="mb-6 lg:hidden">
+            <div className="text-sm uppercase tracking-[0.3em] text-black/45">Hidden Whisper</div>
+            <h1 className="mt-2 text-2xl font-semibold text-black/85">Login to continue</h1>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2 rounded-2xl bg-black/5 p-1 ring-1 ring-black/5">
+            <button
+              type="button"
+              onClick={() => setRole("user")}
+              className={
+                "rounded-xl px-4 py-3 text-sm font-semibold transition-colors " +
+                (role === "user" ? "bg-white text-black shadow-sm" : "text-black/55 hover:text-black/75")
+              }
+            >
+              User
+            </button>
+            <button
+              type="button"
+              onClick={() => setRole("admin")}
+              className={
+                "rounded-xl px-4 py-3 text-sm font-semibold transition-colors " +
+                (role === "admin" ? "bg-white text-black shadow-sm" : "text-black/55 hover:text-black/75")
+              }
+            >
+              Admin
+            </button>
+          </div>
+
+          <div className="mt-6 grid gap-4">
+            {isAdmin ? (
+              <>
+                <Field label="Admin Username" value={draft.username} onChange={(v) => setDraft((d) => ({ ...d, username: v }))} placeholder="admin" />
+                <Field label="Admin Password" value={draft.password} onChange={(v) => setDraft((d) => ({ ...d, password: v }))} placeholder="admin" type="password" />
+                <Field label="IRC Onion Host" value={draft.host} onChange={(v) => setDraft((d) => ({ ...d, host: v }))} placeholder="examplehiddenservice.onion" />
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <Field label="Port" value={draft.port} onChange={(v) => setDraft((d) => ({ ...d, port: v }))} placeholder="6667" type="number" />
+                  <label className="flex items-center gap-2 rounded-xl bg-black/5 px-3 py-3 ring-1 ring-black/5">
+                    <input
+                      type="checkbox"
+                      checked={draft.tls}
+                      onChange={(e) => setDraft((d) => ({ ...d, tls: e.target.checked }))}
+                      className="h-4 w-4 rounded border-black/20 text-[#25D366] focus:ring-[#25D366]/40"
+                    />
+                    <span className="text-sm font-semibold text-black/70">Use TLS</span>
+                  </label>
+                </div>
+              </>
+            ) : (
+              <>
+                <Field label="Display Name" value={draft.displayName} onChange={(v) => setDraft((d) => ({ ...d, displayName: v }))} placeholder="Your name" />
+                <Field label="Nickname" value={draft.nick} onChange={(v) => setDraft((d) => ({ ...d, nick: v }))} placeholder="yourNick" />
+                <Field label="IRC Onion Host" value={draft.host} onChange={(v) => setDraft((d) => ({ ...d, host: v }))} placeholder="examplehiddenservice.onion" />
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <Field label="Port" value={draft.port} onChange={(v) => setDraft((d) => ({ ...d, port: v }))} placeholder="6667" type="number" />
+                  <label className="flex items-center gap-2 rounded-xl bg-black/5 px-3 py-3 ring-1 ring-black/5">
+                    <input
+                      type="checkbox"
+                      checked={draft.tls}
+                      onChange={(e) => setDraft((d) => ({ ...d, tls: e.target.checked }))}
+                      className="h-4 w-4 rounded border-black/20 text-[#25D366] focus:ring-[#25D366]/40"
+                    />
+                    <span className="text-sm font-semibold text-black/70">Use TLS</span>
+                  </label>
+                </div>
+              </>
+            )}
+
+            <button
+              type="button"
+              onClick={onSubmit}
+              className="mt-2 inline-flex h-12 items-center justify-center rounded-full bg-[#25D366] px-5 text-sm font-semibold text-white transition-colors hover:bg-[#1fb75a] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#25D366]/50"
+            >
+              Continue
+            </button>
+
+            <p className="text-xs leading-5 text-black/45">
+              For now, admin credentials are <span className="font-semibold">admin / admin</span>. Onion link entry happens here in the app, not in the setup script.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Field({ label, value, onChange, placeholder, type = "text" }) {
+  return (
+    <label className="grid gap-1.5">
+      <span className="text-xs font-semibold text-black/70">{label}</span>
+      <input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        type={type}
+        className="h-11 w-full rounded-xl bg-white px-3 text-sm text-black/80 ring-1 ring-black/10 placeholder:text-black/40 focus:outline-none focus:ring-2 focus:ring-[#25D366]/40"
+      />
+    </label>
   );
 }
 

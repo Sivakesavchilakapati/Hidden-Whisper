@@ -12,9 +12,8 @@ Hidden Whisper is a React chat UI with a Node gateway that talks to IRC through 
 ## Local development
 
 1. Copy [.env.example](.env.example) to `.env`.
-2. Set `IRC_HOST` to your onion IRC host.
-3. Make sure Tor is listening on `127.0.0.1:9050` or update `TOR_SOCKS_HOST` and `TOR_SOCKS_PORT`.
-4. Run:
+2. Make sure Tor is listening on `127.0.0.1:9050` or update `TOR_SOCKS_HOST` and `TOR_SOCKS_PORT`.
+3. Run:
 
 ```bash
 npm run dev:full
@@ -33,14 +32,14 @@ Windows:
 - To package a standalone `.exe`, run [scripts/windows/build_setup_exe.ps1](scripts/windows/build_setup_exe.ps1).
 - Test checks: [scripts/windows/test_stack.bat](scripts/windows/test_stack.bat).
 - The setup runner now verifies Tor SOCKS on `127.0.0.1:9050` and starts `tor.exe` automatically if needed.
-- If `.env` already has `IRC_HOST`, it is offered as the default onion host prompt value.
+- The setup runner no longer asks for the onion host. Enter it in the app login screen instead.
 - The setup runner opens `http://localhost:3000` automatically when starting the gateway.
 
 Linux (Ubuntu):
 
 - Run `sudo bash scripts/linux/setup_and_run.sh`.
 - Test checks: `bash scripts/linux/test_stack.sh`.
-- The setup runner validates onion input and fails with tor service diagnostics if `127.0.0.1:9050` is unavailable.
+- The setup runner installs Tor/runtime pieces and leaves onion entry to the app login screen.
 
 ## Production on EC2
 
@@ -54,7 +53,7 @@ npm run build
 
 3. Create `.env` from [.env.example](.env.example) and set:
 
-- `IRC_HOST` to your IRC onion host.
+- `IRC_HOST` to your IRC onion host, or leave it blank and enter it from the app login screen.
 - `IRC_PORT` to your IRC server port.
 - `IRC_TLS=true` if the onion endpoint expects TLS.
 - `TOR_ENABLED=true`.

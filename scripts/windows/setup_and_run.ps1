@@ -66,36 +66,17 @@ if (-not (Get-Command choco -ErrorAction SilentlyContinue)) {
 
 choco install tor -y
 Ensure-TorSocks
-try {
-  choco install inspircd -y
-} catch {
-  Write-Warning 'InspIRCd package not available in Chocolatey. Install manually from https://www.inspircd.org/'
-}
 
-$onionDefault = ''
-$envFile = Join-Path $root '.env'
-if (Test-Path $envFile) {
-  $line = Get-Content $envFile | Where-Object { $_ -match '^IRC_HOST=' } | Select-Object -First 1
-  if ($line) {
-    $onionDefault = ($line -replace '^IRC_HOST=', '').Trim()
+if ($env:INSTALL_INSPIRCD -eq 'true') {
+  try {
+    choco install inspircd -y
+  } catch {
+    Write-Warning 'InspIRCd package not available in Chocolatey. Install manually from https://www.inspircd.org/ if you need a local IRC server.'
   }
-}
-
-if ($onionDefault) {
-  $onion = Read-Host "Enter IRC onion host (default: $onionDefault)"
-  if ([string]::IsNullOrWhiteSpace($onion)) { $onion = $onionDefault }
 } else {
-  $onion = Read-Host 'Enter IRC onion host (example: abc...xyz.onion)'
+  Write-Host 'Skipping InspIRCd install by default. Set INSTALL_INSPIRCD=true to try it.'
 }
-
-if ([string]::IsNullOrWhiteSpace($onion)) {
-  throw 'Onion host is required.'
-}
-
-$onion = $onion.Trim().ToLowerInvariant()
-if ($onion -notmatch '^[a-z2-7]{56}\.onion$' -and $onion -notmatch '^[a-z2-7][a-z2-7.-]*\.onion$') {
-  throw "Onion host is invalid: $onion"
-}
+$envFile = Join-Path $root '.env'
 
 @"
 HOST=0.0.0.0
@@ -104,7 +85,7 @@ WS_PATH=/ws
 TOR_ENABLED=true
 TOR_SOCKS_HOST=127.0.0.1
 TOR_SOCKS_PORT=9050
-IRC_HOST=$onion
+IRC_HOST=
 IRC_PORT=6667
 IRC_TLS=false
 IRC_TLS_REJECT_UNAUTHORIZED=true
@@ -113,6 +94,7 @@ ALLOW_CLIENT_IRC_SETTINGS=true
 MAX_TEXT_LEN=900
 MAX_NICK_LEN=24
 "@ | Set-Content -Path (Join-Path $root '.env') -Encoding UTF8
+Write-Host 'Wrote .env with blank IRC host. Enter the onion link in the app login screen.'
 
 npm install
 npm run build

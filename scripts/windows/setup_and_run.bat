@@ -63,39 +63,17 @@ if %errorlevel% neq 0 (
 call :ensure_tor_socks
 if %errorlevel% neq 0 goto :fail
 
-echo Attempting InspIRCd install...
-choco install inspircd -y >> "%LOGFILE%" 2>&1
-if %errorlevel% neq 0 (
-  echo InspIRCd package not available via Chocolatey on this machine.
-  echo Install InspIRCd manually from https://www.inspircd.org/ and rerun this script.
-  echo [WARN] choco install inspircd failed.>> "%LOGFILE%"
-)
-
-set "ONION_DEFAULT="
-if exist ".env" (
-  for /f "tokens=1,* delims==" %%A in ('findstr /B /I "IRC_HOST=" ".env" 2^>nul') do set "ONION_DEFAULT=%%B"
-)
-
-if defined ONION_DEFAULT (
-  set /p ONION=Enter IRC onion host ^(default: !ONION_DEFAULT!^): 
-  if "!ONION!"=="" set "ONION=!ONION_DEFAULT!"
+if /I "%INSTALL_INSPIRCD%"=="true" (
+  echo Attempting InspIRCd install...
+  choco install inspircd -y >> "%LOGFILE%" 2>&1
+  if %errorlevel% neq 0 (
+    echo InspIRCd package not available via Chocolatey on this machine.
+    echo Install InspIRCd manually from https://www.inspircd.org/ if you need a local IRC server.
+    echo [WARN] choco install inspircd failed.>> "%LOGFILE%"
+  )
 ) else (
-  set /p ONION=Enter IRC onion host ^(example: abc...xyz.onion^): 
-)
-
-if "%ONION%"=="" (
-  echo Onion host is required.
-  echo [ERROR] Onion host input was empty.>> "%LOGFILE%"
-  goto :fail
-)
-
-for /f "usebackq delims=" %%I in (`powershell -NoProfile -Command "$o='%ONION%'.Trim().ToLower(); Write-Output $o"`) do set "ONION=%%I"
-
-powershell -NoProfile -Command "$o='%ONION%'; if($o -match '^[a-z2-7]{56}\.onion$' -or $o -match '^[a-z2-7][a-z2-7.-]*\.onion$'){exit 0}else{exit 1}" >nul 2>&1
-if %errorlevel% neq 0 (
-  echo Onion host must be a valid .onion hostname.
-  echo [ERROR] Onion host failed validation: %ONION%>> "%LOGFILE%"
-  goto :fail
+  echo Skipping InspIRCd install by default.
+  echo [INFO] InspIRCd install skipped. Set INSTALL_INSPIRCD=true to try it.>> "%LOGFILE%"
 )
 
 echo Writing .env...
@@ -106,7 +84,7 @@ echo Writing .env...
   echo TOR_ENABLED=true
   echo TOR_SOCKS_HOST=127.0.0.1
   echo TOR_SOCKS_PORT=9050
-  echo IRC_HOST=%ONION%
+  echo IRC_HOST=
   echo IRC_PORT=6667
   echo IRC_TLS=false
   echo IRC_TLS_REJECT_UNAUTHORIZED=true
@@ -115,7 +93,7 @@ echo Writing .env...
   echo MAX_TEXT_LEN=900
   echo MAX_NICK_LEN=24
 ) > .env
-echo [INFO] Wrote .env with onion host %ONION%.>> "%LOGFILE%"
+echo [INFO] Wrote .env with blank IRC host; configure onion in the app login screen.>> "%LOGFILE%"
 
 echo Installing Node dependencies...
 call npm install >> "%LOGFILE%" 2>&1
