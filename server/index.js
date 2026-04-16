@@ -15,6 +15,7 @@ const __dirname = path.dirname(__filename);
 const ROOT_DIR = path.resolve(__dirname, "..");
 const DIST_DIR = path.join(ROOT_DIR, "dist");
 const ENV_FILE = path.join(ROOT_DIR, ".env");
+const UPLOADS_DIR = path.join(ROOT_DIR, "uploads");
 
 function parseBoolean(value, fallback = false) {
   if (value === undefined || value === null || value === "") return fallback;
@@ -141,6 +142,7 @@ const TOR_SOCKS_PORT = parsePort(process.env.TOR_SOCKS_PORT, 9050);
 
 const MAX_TEXT_LEN = Number.parseInt(process.env.MAX_TEXT_LEN || "900", 10) || 900;
 const MAX_NICK_LEN = Number.parseInt(process.env.MAX_NICK_LEN || "24", 10) || 24;
+const MAX_UPLOAD_BYTES = Number.parseInt(process.env.MAX_UPLOAD_BYTES || "15728640", 10) || 15728640;
 
 // Optional access token for the whole app. If set, clients must authenticate.
 const APP_ACCESS_TOKEN = (process.env.APP_ACCESS_TOKEN || "").trim();
@@ -224,6 +226,26 @@ function serveStatic(req, res) {
   const url = new URL(req.url ?? "/", `http://${req.headers.host || "localhost"}`);
   const pathname = decodeURIComponent(url.pathname);
 
+  if (pathname === "/api/upload") {
+    if (req.method !== "POST") {
+      res.writeHead(405, { "content-type": "text/plain; charset=utf-8" });
+      res.end("Method Not Allowed");
+      return;
+    }
+    handleUpload(req, res);
+    return;
+  }
+
+  if (pathname.startsWith("/uploads/")) {
+    if (req.method !== "GET" && req.method !== "HEAD") {
+      res.writeHead(405, { "content-type": "text/plain; charset=utf-8" });
+      res.end("Method Not Allowed");
+      return;
+    }
+    serveUpload(pathname, req, res);
+    return;
+  }
+
   if (pathname === "/api/health") {
     res.writeHead(200, { "content-type": "application/json; charset=utf-8" });
     res.end(
@@ -295,6 +317,113 @@ function serveStatic(req, res) {
 
   res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
   res.end("Not Found");
+}
+
+function decodeHeaderFileName(value) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return "file";
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
+}
+
+function sanitizeFileName(name) {
+  const base = path.basename(String(name ?? "file")).replace(/[\\/:*?"<>|\x00-\x1F]/g, "_").trim();
+  return base || "file";
+}
+
+function readRequestBody(req, maxBytes) {
+  return new Promise((resolve, reject) => {
+    /** @type {Buffer[]} */
+    const chunks = [];
+    let total = 0;
+
+    req.on("data", (chunk) => {
+      total += chunk.length;
+      if (total > maxBytes) {
+        reject(new Error("payload_too_large"));
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+
+    req.on("end", () => resolve(Buffer.concat(chunks)));
+    req.on("error", reject);
+  });
+}
+
+async function handleUpload(req, res) {
+  try {
+    const fileName = sanitizeFileName(decodeHeaderFileName(req.headers["x-file-name"]));
+    const body = await readRequestBody(req, MAX_UPLOAD_BYTES);
+
+    if (!body.length) {
+      res.writeHead(400, { "content-type": "application/json; charset=utf-8" });
+      res.end(JSON.stringify({ ok: false, error: "empty_file" }));
+      return;
+    }
+
+    fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+    const storedName = `${crypto.randomUUID()}_${fileName}`;
+    const absPath = path.join(UPLOADS_DIR, storedName);
+    fs.writeFileSync(absPath, body);
+
+    res.writeHead(200, { "content-type": "application/json; charset=utf-8" });
+    res.end(
+      JSON.stringify({
+        ok: true,
+        url: `/uploads/${encodeURIComponent(storedName)}`,
+        fileName,
+        size: body.length,
+      })
+    );
+  } catch (err) {
+    const code = err && typeof err === "object" && "message" in err ? String(err.message) : "upload_failed";
+    if (code === "payload_too_large") {
+      res.writeHead(413, { "content-type": "application/json; charset=utf-8" });
+      res.end(JSON.stringify({ ok: false, error: "payload_too_large" }));
+      return;
+    }
+    res.writeHead(500, { "content-type": "application/json; charset=utf-8" });
+    res.end(JSON.stringify({ ok: false, error: "upload_failed" }));
+  }
+}
+
+function serveUpload(pathname, req, res) {
+  const rel = pathname.replace(/^\/uploads\//, "");
+  const decoded = decodeURIComponent(rel || "");
+  const safeName = path.basename(decoded);
+  const absPath = path.join(UPLOADS_DIR, safeName);
+
+  if (!safeName || !fs.existsSync(absPath)) {
+    res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
+    res.end("Not Found");
+    return;
+  }
+
+  const originalName = safeName.includes("_") ? safeName.split("_").slice(1).join("_") : safeName;
+  const stream = fs.createReadStream(absPath);
+  const headers = {
+    "content-type": getMimeType(absPath),
+    "content-disposition": `attachment; filename="${sanitizeFileName(originalName)}"`,
+    "x-content-type-options": "nosniff",
+  };
+
+  res.writeHead(200, headers);
+  if (req.method === "HEAD") {
+    res.end();
+    stream.destroy();
+    return;
+  }
+
+  stream.pipe(res);
+  stream.on("error", () => {
+    res.writeHead(500, { "content-type": "text/plain; charset=utf-8" });
+    res.end("Internal Server Error");
+  });
 }
 
 const server = http.createServer(serveStatic);

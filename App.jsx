@@ -10,6 +10,7 @@ const THEME = {
 const BASE_TIME = Date.now();
 const SYSTEM_CHAT_ID = "chat_system";
 const ADMIN_CREDENTIALS = { username: "admin", password: "admin" };
+const FILE_MARKER_RE = /^\[file\]\s+(.+?)\s+\(([^)]+)\)(?:\s+::\s+(\S+))?$/i;
 
 function uid() {
   if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
@@ -75,6 +76,42 @@ function createSystemMessage(text) {
     type: "system",
     text,
     createdAt: Date.now(),
+  };
+}
+
+function parseFileMarker(text) {
+  const raw = String(text ?? "").trim();
+  if (!raw) return null;
+
+  const match = raw.match(FILE_MARKER_RE);
+  if (!match) return null;
+
+  const fileName = (match[1] ?? "").trim();
+  const fileSize = (match[2] ?? "").trim();
+  const url = (match[3] ?? "").trim();
+  if (!fileName || !fileSize) return null;
+
+  return {
+    fileName,
+    fileSize,
+    url: url || "",
+  };
+}
+
+function normalizeIncomingMessage(message) {
+  if (!message || typeof message !== "object") return message;
+  if (message.type !== "text") return message;
+
+  const parsed = parseFileMarker(message.text);
+  if (!parsed) return message;
+
+  return {
+    ...message,
+    type: "document",
+    fileName: parsed.fileName,
+    fileSize: parsed.fileSize,
+    url: parsed.url,
+    text: undefined,
   };
 }
 
@@ -650,11 +687,12 @@ function MessageContent({ message }) {
       );
 
     case "document":
-      return (
+      return message.url ? (
         <a
           href={message.url}
           target="_blank"
           rel="noreferrer noopener"
+          download={message.fileName || true}
           className="block rounded-xl bg-black/5 p-3 transition-colors hover:bg-black/10"
         >
           <div className="flex items-center gap-3">
@@ -665,9 +703,22 @@ function MessageContent({ message }) {
               <div className="truncate text-sm font-semibold text-black/80">{message.fileName}</div>
               <div className="text-xs text-black/50">{message.fileSize}</div>
             </div>
-            <span className="text-xs font-semibold text-[#25D366]">Open</span>
+            <span className="text-xs font-semibold text-[#25D366]">Download</span>
           </div>
         </a>
+      ) : (
+        <div className="block rounded-xl bg-black/5 p-3 ring-1 ring-black/5">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-white ring-1 ring-black/10">
+              <DocIcon className="h-5 w-5 text-black/60" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-sm font-semibold text-black/80">{message.fileName}</div>
+              <div className="text-xs text-black/50">{message.fileSize}</div>
+            </div>
+            <span className="text-xs font-semibold text-black/45">Unavailable</span>
+          </div>
+        </div>
       );
 
     case "voice":
@@ -1224,7 +1275,7 @@ export default function App() {
           const chatId = typeof data.chatId === "string" ? data.chatId : "";
           const message = data.message;
           if (!chatId || !message || typeof message !== "object") return;
-          appendMessage(chatId, message);
+          appendMessage(chatId, normalizeIncomingMessage(message));
           return;
         }
 
@@ -1382,14 +1433,37 @@ export default function App() {
     setLastError(`Attachments (${kind}) not supported yet`);
   }
 
-  function uploadFile(file) {
+  async function uploadFile(file) {
     if (!selectedChatId || !file) return;
 
     const now = Date.now();
-    const fileUrl = URL.createObjectURL(file);
     const fileName = file.name || "file";
     const fileSize = formatFileSize(file.size);
     const mime = String(file.type || "").toLowerCase();
+    let uploadedUrl = "";
+
+    try {
+      const res = await fetch("/api/upload", {
+        method: "POST",
+        headers: {
+          "content-type": file.type || "application/octet-stream",
+          "x-file-name": encodeURIComponent(fileName),
+        },
+        body: file,
+      });
+
+      if (!res.ok) {
+        throw new Error(`upload_failed_${res.status}`);
+      }
+
+      const payload = await res.json();
+      uploadedUrl = typeof payload?.url === "string" ? payload.url : "";
+      if (!uploadedUrl) throw new Error("missing_upload_url");
+    } catch {
+      setLastError("File upload failed");
+      appendSystemMessage("File upload failed. Please try again.");
+      return;
+    }
 
     if (mime.startsWith("image/")) {
       appendMessage(selectedChatId, {
@@ -1397,7 +1471,7 @@ export default function App() {
         chatId: selectedChatId,
         direction: "out",
         type: "image",
-        url: fileUrl,
+        url: uploadedUrl,
         caption: fileName,
         createdAt: now,
       });
@@ -1407,7 +1481,7 @@ export default function App() {
         chatId: selectedChatId,
         direction: "out",
         type: "video",
-        url: fileUrl,
+        url: uploadedUrl,
         caption: fileName,
         createdAt: now,
       });
@@ -1417,7 +1491,7 @@ export default function App() {
         chatId: selectedChatId,
         direction: "out",
         type: "voice",
-        url: fileUrl,
+        url: uploadedUrl,
         createdAt: now,
       });
     } else {
@@ -1428,13 +1502,16 @@ export default function App() {
         type: "document",
         fileName,
         fileSize,
-        url: fileUrl,
+        url: uploadedUrl,
         createdAt: now,
       });
     }
 
-    // Media transfer over IRC isn't native; send a text marker so remote peers still get context.
-    wsSend({ type: "msg:send", chatId: selectedChatId, text: `[file] ${fileName} (${fileSize})` });
+    wsSend({
+      type: "msg:send",
+      chatId: selectedChatId,
+      text: `[file] ${fileName} (${fileSize}) :: ${uploadedUrl}`,
+    });
   }
 
   if (!isAuthenticated) {
