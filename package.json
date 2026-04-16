@@ -1,0 +1,30 @@
+{
+  "name": "hidden-whisper-ui",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "dev:server": "node server/index.js",
+    "dev:server:watch": "node --watch server/index.js",
+    "dev:full": "concurrently -k -n server,client -c green,cyan \"npm run dev:server\" \"npm run dev\"",
+    "build": "vite build",
+    "preview": "vite preview",
+    "start": "node server/index.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "socks": "^2.8.3",
+    "ws": "^8.18.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "autoprefixer": "^10.4.20",
+    "concurrently": "^9.2.1",
+    "postcss": "^8.4.47",
+    "tailwindcss": "^3.4.14",
+    "vite": "^6.0.7"
+  }
+}
