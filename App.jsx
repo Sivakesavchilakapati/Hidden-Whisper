@@ -1351,19 +1351,20 @@ export default function App() {
   function submitLogin() {
     const role = loginRole;
     const nextNick = loginDraft.nick.trim() || (role === "admin" ? "admin" : "whisper");
-    const host = loginDraft.host.trim() || (role === "user" ? (ircSettingsRef.current.host ?? "") : "");
+    const host = loginDraft.host.trim();
     const parsedPort = Number.parseInt(loginDraft.port, 10);
     const port = Number.isFinite(parsedPort) ? Math.min(65535, Math.max(1, parsedPort)) : 6667;
+
+    if (!host) {
+      setLastError("Please enter the IRC onion host.");
+      appendSystemMessage("Please enter the IRC onion host.");
+      return;
+    }
 
     if (role === "admin") {
       if (loginDraft.username.trim() !== ADMIN_CREDENTIALS.username || loginDraft.password !== ADMIN_CREDENTIALS.password) {
         setLastError("Admin login failed.");
         appendSystemMessage("Admin login failed.");
-        return;
-      }
-      if (!host) {
-        setLastError("Admin must enter the IRC onion host.");
-        appendSystemMessage("Admin must enter the IRC onion host.");
         return;
       }
     }
@@ -1384,15 +1385,14 @@ export default function App() {
     if (isMobile) setMobilePanel("chat");
   }
 
-  function joinChat({ onionLink, target, displayName }) {
-    const ol = onionLink.trim();
+  function joinChat({ target, displayName }) {
     const tgt = target.trim();
     const dn = (displayName ?? "").trim();
-    if (!ol || !tgt) return;
+    if (!tgt) return;
 
     setLastError("");
 
-    const ok = wsSend({ type: "chat:join", onionLink: ol, target: tgt, displayName: dn });
+    const ok = wsSend({ type: "chat:join", target: tgt, displayName: dn });
     if (!ok) {
       setLastError("Not connected to gateway");
       appendSystemMessage("Not connected to gateway.");
@@ -1764,7 +1764,6 @@ function Modal({ open, title, onClose, children, footer }) {
 
 function IrcSettingsModal({ open, onClose, value, onSave }) {
   const [draft, setDraft] = useState(() => ({
-    host: value.host ?? "",
     port: String(value.port ?? 6667),
     tls: Boolean(value.tls),
     nick: value.nick ?? "",
@@ -1774,7 +1773,6 @@ function IrcSettingsModal({ open, onClose, value, onSave }) {
   useEffect(() => {
     if (!open) return;
     setDraft({
-      host: value.host ?? "",
       port: String(value.port ?? 6667),
       tls: Boolean(value.tls),
       nick: value.nick ?? "",
@@ -1783,7 +1781,7 @@ function IrcSettingsModal({ open, onClose, value, onSave }) {
   }, [open, value]);
 
   const previewProto = draft.tls ? "ircs" : "irc";
-  const previewHost = draft.host.trim() || "127.0.0.1";
+  const previewHost = value.host?.trim() || "(set on login)";
   const previewPort = draft.port || "6667";
 
   return (
@@ -1803,11 +1801,10 @@ function IrcSettingsModal({ open, onClose, value, onSave }) {
           <button
             type="button"
             onClick={() => {
-              const host = draft.host.trim();
               const parsed = Number.parseInt(draft.port, 10);
               const port = Number.isFinite(parsed) ? Math.min(65535, Math.max(1, parsed)) : 6667;
               onSave({
-                host,
+                host: value.host ?? "",
                 port,
                 tls: Boolean(draft.tls),
                 nick: draft.nick.trim(),
@@ -1823,16 +1820,6 @@ function IrcSettingsModal({ open, onClose, value, onSave }) {
       }
     >
       <div className="grid gap-3">
-        <div className="grid gap-1.5">
-          <label className="text-xs font-semibold text-black/70">Server IP / Host</label>
-          <input
-            value={draft.host}
-            onChange={(e) => setDraft((d) => ({ ...d, host: e.target.value }))}
-            placeholder="examplehiddenservice.onion"
-            className="h-11 w-full rounded-xl bg-white px-3 text-sm text-black/80 ring-1 ring-black/10 placeholder:text-black/40 focus:outline-none focus:ring-2 focus:ring-[#25D366]/40"
-          />
-        </div>
-
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className="grid gap-1.5">
             <label className="text-xs font-semibold text-black/70">Port</label>
@@ -1891,7 +1878,7 @@ function IrcSettingsModal({ open, onClose, value, onSave }) {
         </div>
 
         <div className="text-xs text-black/45">
-          These settings are sent to the gateway (host/port may be locked by the server).
+          Onion host is set from login only. These settings update connection identity/options.
         </div>
       </div>
     </Modal>
@@ -1899,18 +1886,16 @@ function IrcSettingsModal({ open, onClose, value, onSave }) {
 }
 
 function JoinChatModal({ open, onClose, onJoin, connectionLabel }) {
-  const [onionLink, setOnionLink] = useState("");
   const [target, setTarget] = useState("");
   const [displayName, setDisplayName] = useState("");
 
   useEffect(() => {
     if (!open) return;
-    setOnionLink("");
     setTarget("");
     setDisplayName("");
   }, [open]);
 
-  const canJoin = onionLink.trim().length > 0 && target.trim().length > 0;
+  const canJoin = target.trim().length > 0;
 
   return (
     <Modal
@@ -1931,7 +1916,7 @@ function JoinChatModal({ open, onClose, onJoin, connectionLabel }) {
             disabled={!canJoin}
             onClick={() => {
               if (!canJoin) return;
-              onJoin({ onionLink, target, displayName });
+              onJoin({ target, displayName });
               onClose();
             }}
             className={
@@ -1951,16 +1936,6 @@ function JoinChatModal({ open, onClose, onJoin, connectionLabel }) {
             <div className="mt-0.5 truncate">{connectionLabel}</div>
           </div>
         ) : null}
-
-        <div className="grid gap-1.5">
-          <label className="text-xs font-semibold text-black/70">Onion link (required)</label>
-          <input
-            value={onionLink}
-            onChange={(e) => setOnionLink(e.target.value)}
-            placeholder="examplehiddenservice.onion"
-            className="h-11 w-full rounded-xl bg-white px-3 text-sm text-black/80 ring-1 ring-black/10 placeholder:text-black/40 focus:outline-none focus:ring-2 focus:ring-[#25D366]/40"
-          />
-        </div>
 
         <div className="grid gap-1.5">
           <label className="text-xs font-semibold text-black/70">Chat target</label>
@@ -1983,7 +1958,7 @@ function JoinChatModal({ open, onClose, onJoin, connectionLabel }) {
         </div>
 
         <div className="text-xs text-black/45">
-          Joining sends a request to the gateway, which connects to the IRC server over Tor.
+          Joining sends a request to the gateway using the onion host configured at login.
         </div>
       </div>
     </Modal>
