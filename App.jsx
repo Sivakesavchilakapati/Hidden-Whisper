@@ -1736,13 +1736,13 @@ function Modal({ open, title, onClose, children, footer }) {
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center md:items-center">
+    <div className="fixed inset-0 z-50 flex items-end justify-center overflow-x-hidden px-3 md:items-center md:px-4">
       <div className="absolute inset-0 bg-black/30" onMouseDown={onClose} aria-hidden />
 
       <div
         role="dialog"
         aria-modal="true"
-        className="relative w-full max-w-xl rounded-t-2xl bg-white shadow-xl ring-1 ring-black/10 md:rounded-2xl"
+        className="relative w-full max-w-xl overflow-hidden rounded-t-2xl bg-white shadow-xl ring-1 ring-black/10 md:rounded-2xl"
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between gap-3 border-b border-black/10 px-4 py-3">
@@ -1752,7 +1752,7 @@ function Modal({ open, title, onClose, children, footer }) {
           </IconButton>
         </div>
 
-        <div className="max-h-[70vh] overflow-y-auto px-4 py-4 md:max-h-[75vh]">
+        <div className="min-w-0 max-h-[70vh] overflow-y-auto px-4 py-4 md:max-h-[75vh]">
           {children}
         </div>
 
@@ -1871,7 +1871,7 @@ function IrcSettingsModal({ open, onClose, value, onSave }) {
 
         <div className="rounded-xl bg-[#f0f2f5] px-3 py-2 text-xs text-black/55 ring-1 ring-black/5">
           <div className="font-semibold text-black/65">Preview</div>
-          <div className="mt-0.5 truncate">
+          <div className="mt-0.5 break-all whitespace-normal">
             {previewProto}://{previewHost}:{previewPort}
             {draft.nick.trim() ? ` · nick: ${draft.nick.trim()}` : ""}
           </div>
@@ -1931,9 +1931,9 @@ function JoinChatModal({ open, onClose, onJoin, connectionLabel }) {
     >
       <div className="grid gap-3">
         {connectionLabel ? (
-          <div className="rounded-xl bg-black/5 px-3 py-2 text-xs text-black/55 ring-1 ring-black/5">
+          <div className="min-w-0 rounded-xl bg-black/5 px-3 py-2 text-xs text-black/55 ring-1 ring-black/5">
             <div className="font-semibold text-black/65">Current server</div>
-            <div className="mt-0.5 truncate">{connectionLabel}</div>
+            <div className="mt-0.5 break-all whitespace-normal">{connectionLabel}</div>
           </div>
         ) : null}
 
