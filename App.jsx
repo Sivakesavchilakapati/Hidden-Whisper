@@ -1605,9 +1605,9 @@ function LoginScreen({ role, setRole, draft, setDraft, onSubmit, connectionHint 
   const isAdmin = role === "admin";
 
   return (
-    <div className="flex h-[100dvh] w-full items-center justify-center overflow-hidden bg-[radial-gradient(circle_at_top,_rgba(37,211,102,0.16),_transparent_34%),linear-gradient(180deg,#0f172a_0%,#0f172a_28%,#f0f2f5_28%,#f0f2f5_100%)] px-4">
-      <div className="grid w-full max-w-5xl gap-6 rounded-[28px] bg-white shadow-2xl ring-1 ring-black/10 lg:grid-cols-[1.2fr_0.8fr]">
-        <div className="hidden flex-col justify-between rounded-[28px] bg-[#0f172a] p-8 text-white lg:flex">
+    <div className="flex min-h-[100dvh] w-full items-center justify-center bg-[radial-gradient(circle_at_top,_rgba(37,211,102,0.16),_transparent_34%),linear-gradient(180deg,#0f172a_0%,#0f172a_28%,#f0f2f5_28%,#f0f2f5_100%)] px-4 py-6">
+      <div className="grid w-full max-w-6xl gap-6 rounded-[28px] bg-white shadow-2xl ring-1 ring-black/10 lg:grid-cols-[minmax(0,1fr)_minmax(360px,420px)]">
+        <div className="hidden min-w-0 flex-col justify-between rounded-[28px] bg-[#0f172a] p-8 text-white lg:flex">
           <div>
             <div className="text-sm uppercase tracking-[0.3em] text-white/50">Hidden Whisper</div>
             <h1 className="mt-4 max-w-lg text-4xl font-semibold leading-tight">Log in as admin or user, then connect to your onion IRC server.</h1>
@@ -1615,12 +1615,12 @@ function LoginScreen({ role, setRole, draft, setDraft, onSubmit, connectionHint 
               Enter your details in the app. The gateway will verify Tor connectivity and show connection errors in the System chat.
             </p>
           </div>
-          <div className="rounded-2xl bg-white/5 p-4 text-sm text-white/70 ring-1 ring-white/10">
+          <div className="min-w-0 rounded-2xl bg-white/5 p-4 text-sm text-white/70 ring-1 ring-white/10">
             {connectionHint ? <div className="truncate">Current gateway: {connectionHint}</div> : <div>No gateway connection yet.</div>}
           </div>
         </div>
 
-        <div className="p-6 sm:p-8">
+        <div className="min-w-0 p-6 sm:p-8">
           <div className="mb-6 lg:hidden">
             <div className="text-sm uppercase tracking-[0.3em] text-black/45">Hidden Whisper</div>
             <h1 className="mt-2 text-2xl font-semibold text-black/85">Login to continue</h1>
